@@ -63,9 +63,20 @@ void currentSample()
       curMax--;
     }
   }
+
+  if (curMax > 280)
+  {
+    digitalWrite(0, HIGH);
+  }
+  else if( curMax < 100)
+  {
+    digitalWrite(0, LOW);
+  }
 }
 
 void setup() {
+  pinMode(0, OUTPUT);
+  digitalWrite(0, LOW);
   Serial.begin(115200);
 
   // setup the SPIFFS first so we can read our config file 
