@@ -33,10 +33,14 @@
         if (xh.readyState == 4){
           if(xh.status == 200) {
             var res = JSON.parse(xh.responseText);
-            heap.add(res.heap);
+ //           heap.add(res.heap);
             curr.add(res.current);
             var currentTime = document.getElementById("curTime");
             currentTime.value = res.time;
+			document.getElementById("threshold").innerHTML = "Threshold = " + res.threshold;
+			document.getElementById("thresholdTime").innerHTML = "Threshold time = " + res.thresholdTime;
+			document.getElementById("timeBelowThreshold").innerHTML = "Time below threshold = " + res.timeBelowThreshold;
+			document.getElementById("output").innerHTML = "Output = " + res.output;
             if(running) setTimeout(loadValues, reloadPeriod);
           } else running = false;
         }
@@ -78,7 +82,7 @@
       //temp = createGraph(document.getElementById("analog"), "Temperature", 100, 128, 10, 40, false, "cyan", calcThermistor);
       
       curr = createGraph(document.getElementById("current"), "Current Current", 100, 128, 0, 512, false, "cyan");
-      heap = createGraph(document.getElementById("heap"), "Current Heap", 100, 125, 0, 30000, true, "orange");
+//      heap = createGraph(document.getElementById("heap"), "Current Heap", 100, 125, 0, 30000, true, "orange");
       run();
     }
   </script>
@@ -92,7 +96,11 @@
     <input type="button" id="start-button" value="Start"/>
     <input type="button" id="stop-button" value="Stop"/>
   </div>
-  <div id="heap"></div>
+  <!-- <div id="heap"></div> -->
   <div id="current"></div>
+  <div id="threshold">Threshold = ?</div>
+  <div id="thresholdTime">Threshold time = ?</div>
+  <div id="timeBelowThreshold">Time below threshold = ?</div>
+  <div id="output">Output = ?</div>
 </body>
 </html>
