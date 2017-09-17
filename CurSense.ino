@@ -6,19 +6,24 @@
  */
 
 #include "NTPClient.h"
+#include "currentSense.h"
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 
 #include <ESP8266WebServer.h>
 #include <FS.h>
-#include "Ticker.h"
+
+#include "EEPROM.h"
+
+#define THRESHOLD 0
+#define THRESHOLD_TIME 2
 
 int timeHour = 0;
 int off = 0;
 
 WiFiUDP ntpUDP;
 
-Ticker currentCheck;
+currentSense cs;
 
 // By default 'time.nist.gov' is used with 60 seconds update interval and
 // no offset
@@ -31,52 +36,92 @@ extern ESP8266WebServer server;
 
 extern void FSBsetup(void);
 
-/* from measuring */
-#define ANALOG_BASE 539;
-
-uint16_t curMax = 0;
-
-void currentSample()
+uint16_t readThreshold(void)
 {
-  int16_t value;
+  return ((EEPROM.read(THRESHOLD) << 8) | EEPROM.read(THRESHOLD + 1));
+}
+
+uint16_t readThresholdTime(void)
+{
+  return ((EEPROM.read(THRESHOLD_TIME) << 8) | EEPROM.read(THRESHOLD_TIME + 1));
+}
+
+void writeThreshold(uint16_t value)
+{
+  EEPROM.write(THRESHOLD, (value >> 8) & 0xff);
+  EEPROM.write(THRESHOLD + 1, value & 0xff);
+  EEPROM.commit();
+}
+
+void writeThresholdTime(uint16_t value)
+{
+  EEPROM.write(THRESHOLD_TIME, (value >> 8) & 0xff);
+  EEPROM.write(THRESHOLD_TIME + 1, value & 0xff);
+  EEPROM.commit();
+}
+
+void handleThreshold(void) {
+  String thresholdArg = server.arg("threshold");
+  uint16_t threshold;
   
-  /* we need to read the analog value and keep a 20 MAX/MIN samples for an average */
-
-  value = analogRead(A0) - ANALOG_BASE;
-
-  if (value < 0)
+  if (thresholdArg != "")
   {
-    value = -value;
-  }
-
-  /* now we have the absolute value */
-
-  if ( value > curMax)
-  {
-    curMax = value;
+    threshold = atoi(thresholdArg.c_str());
+    writeThreshold(threshold);
+    cs.setThreshold(threshold);
+    server.send(200, "text/plain", "Threshold set");
   }
   else
   {
-    /* I think we need to decrement this so we will get a new max at some point */
-    if (curMax > 0)
-    {
-      curMax--;
-    }
-  }
+    // get the threshold and return it
+    Serial.println("We got a request for threshold");
+   
+    String output = "[";
 
-  if (curMax > 280)
-  {
-    digitalWrite(0, HIGH);
+    char tmpBuf[30];
+    sprintf(tmpBuf, "%d", cs.getThreshold());
+  
+    output += "\"threshold\":\"";
+    output += String(tmpBuf);
+    output += "\""; 
+
+    output += "]";
+    server.send(200, "text/json", output);
   }
-  else if( curMax < 100)
+}
+
+void handleThresholdTime(void) {
+  String thresholdTimeArg = server.arg("thresholdTime");
+  uint16_t thresholdTime;
+  
+  if (thresholdTimeArg.c_str() != "")
   {
-    digitalWrite(0, LOW);
+    thresholdTime = atoi(thresholdTimeArg.c_str());
+    writeThresholdTime(thresholdTime);
+    cs.setThresholdTime(thresholdTime);
+    server.send(200, "text/plain", "Threshold Time set");
+  }
+  else
+  {
+    // get the thresholdTime and return it
+    Serial.println("We got a request for thresholdTime");
+   
+    String output = "[";
+
+    char tmpBuf[30];
+    sprintf(tmpBuf, "%d", cs.getThresholdTime());
+  
+    output += "\"thresholdTime\":\"";
+    output += String(tmpBuf);
+    output += "\""; 
+
+    output += "]";
+    server.send(200, "text/json", output);
   }
 }
 
 void setup() {
-  pinMode(0, OUTPUT);
-  digitalWrite(0, LOW);
+  EEPROM.begin(512);
   Serial.begin(115200);
 
   // setup the SPIFFS first so we can read our config file 
@@ -92,7 +137,7 @@ void setup() {
   });
   server.on("/current", HTTP_GET, [](){
     String json = "{";
-    json += "\"current\":"+String(curMax);
+    json += "\"current\":"+String(cs.getCurrent());
     json += "}";
     server.send(200, "text/json", json);
     json = String();
@@ -103,7 +148,11 @@ void setup() {
   server.on("/all", HTTP_GET, [](){
     String json = "{";
     json += "\"heap\":"+String(ESP.getFreeHeap());
-    json += ",\"current\":"+String(curMax);
+    json += ",\"current\":"+String(cs.getCurrent());
+    json += ",\"threshold\":"+String(cs.getThreshold());
+    json += ",\"thresholdTime\":"+String(cs.getThresholdTime());
+    json += ",\"timeBelowThreshold\":"+String(cs.getTimeBelowThreshold());
+    json += ",\"output\":"+String(cs.getOutput());
     json += ",\"time\":\"";
     json += timeClient->getFormattedTime();
     json += "\"}";
@@ -112,14 +161,17 @@ void setup() {
   });
 #endif
 
+  server.on("/threshold", handleThreshold);
+  server.on("/thresholdTime", handleThresholdTime);
+  
+  /* read values from EEPROM */
+
+  cs.setThreshold(readThreshold());
+  cs.setThresholdTime(readThresholdTime());
+
   /* start my sampler */
 
-  currentCheck.attach(.01, currentSample);
-  
-  /* stop the test for now
-  
-  myLeds->ledTest();
-  */
+  cs.begin();
   
   // call the browser setup first
 
@@ -136,6 +188,7 @@ void loop()
   int curTime = -1;
   
   // make sure we deal with the time
+  //Serial.printf("read %d\n", analogRead(A0));
   
   if (timeClient->update())
   {
